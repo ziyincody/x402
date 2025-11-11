@@ -8,6 +8,8 @@ import {
 import {
   PaymentPayload,
   PaymentRequirements,
+  RegisterRequest,
+  RegisterResponse,
   SettleResponse,
   VerifyResponse,
 } from "../types/verify";
@@ -19,13 +21,14 @@ export type CreateHeaders = () => Promise<{
   settle: Record<string, string>;
   supported: Record<string, string>;
   list?: Record<string, string>;
+  register?: Record<string, string>;
 }>;
 
 /**
  * Creates a facilitator client for interacting with the X402 payment facilitator service
  *
  * @param facilitator - The facilitator config to use. If not provided, the default facilitator will be used.
- * @returns An object containing verify and settle functions for interacting with the facilitator
+ * @returns An object containing verify, settle, and register functions for interacting with the facilitator
  */
 export function useFacilitator(facilitator?: FacilitatorConfig) {
   /**
@@ -169,7 +172,44 @@ export function useFacilitator(facilitator?: FacilitatorConfig) {
     return data as ListDiscoveryResourcesResponse;
   }
 
-  return { verify, settle, supported, list };
+  /**
+   * Registers an agent with ERC-8004 Identity Registry via the facilitator service
+   *
+   * @param request - The registration request containing network, tokenURI, metadata, and mode
+   * @returns A promise that resolves to the registration response (self mode returns tx details, prepare mode returns unsigned tx data)
+   */
+  async function register(request: RegisterRequest): Promise<RegisterResponse> {
+    const url = facilitator?.url || DEFAULT_FACILITATOR_URL;
+
+    let headers = { "Content-Type": "application/json" };
+    if (facilitator?.createAuthHeaders) {
+      const authHeaders = await facilitator.createAuthHeaders();
+      if (authHeaders.register) {
+        headers = { ...headers, ...authHeaders.register };
+      }
+    }
+
+    const res = await fetch(`${url}/register`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        network: request.network,
+        tokenURI: request.tokenURI,
+        metadata: request.metadata,
+        mode: request.mode || "self",
+      }),
+    });
+
+    if (res.status !== 200) {
+      const errorData = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(`Failed to register agent: ${errorData.error || res.statusText}`);
+    }
+
+    const data = await res.json();
+    return data as RegisterResponse;
+  }
+
+  return { verify, settle, supported, list, register };
 }
 
-export const { verify, settle, supported, list } = useFacilitator();
+export const { verify, settle, supported, list, register } = useFacilitator();

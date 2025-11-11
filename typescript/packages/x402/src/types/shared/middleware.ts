@@ -33,6 +33,12 @@ export type PaymentMiddlewareConfig = {
     verificationFailed?: string;
     settlementFailed?: string;
   };
+  erc8004Registration?: {
+    enabled: boolean;
+    tokenURI?: string;
+    metadata?: Array<{ key: string; value: string }>;
+    mode?: "self" | "prepare";
+  };
 };
 
 export interface ERC20TokenAmount {

@@ -241,3 +241,52 @@ export const SupportedPaymentKindsResponseSchema = z.object({
   kinds: z.array(SupportedPaymentKindSchema),
 });
 export type SupportedPaymentKindsResponse = z.infer<typeof SupportedPaymentKindsResponseSchema>;
+
+// x402RegisterRequest (ERC-8004 agent registration)
+export const MetadataEntrySchema = z.object({
+  key: z.string(),
+  value: z.string(),
+});
+export type MetadataEntry = z.infer<typeof MetadataEntrySchema>;
+
+export const RegisterRequestSchema = z.object({
+  network: NetworkSchema,
+  tokenURI: z.string().optional(),
+  metadata: z.array(MetadataEntrySchema).optional(),
+  mode: z.enum(["self", "prepare"]).optional().default("self"),
+});
+export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
+
+// x402RegisterResponse (ERC-8004 agent registration)
+export const RegisterSelfResponseSchema = z.object({
+  success: z.literal(true),
+  network: NetworkSchema,
+  txHash: z.string(),
+  agentOwner: z.string().regex(EvmAddressRegex),
+  agentId: z.string().optional(),
+});
+export type RegisterSelfResponse = z.infer<typeof RegisterSelfResponseSchema>;
+
+export const RegisterPrepareResponseSchema = z.object({
+  success: z.literal(true),
+  network: NetworkSchema,
+  mode: z.literal("prepare"),
+  to: z.string().regex(EvmAddressRegex),
+  data: z.string().regex(/^0x[0-9a-fA-F]+$/),
+  chainId: z.number(),
+});
+export type RegisterPrepareResponse = z.infer<typeof RegisterPrepareResponseSchema>;
+
+export const RegisterErrorResponseSchema = z.object({
+  success: z.literal(false),
+  error: z.string(),
+  network: NetworkSchema.optional(),
+});
+export type RegisterErrorResponse = z.infer<typeof RegisterErrorResponseSchema>;
+
+export const RegisterResponseSchema = z.union([
+  RegisterSelfResponseSchema,
+  RegisterPrepareResponseSchema,
+  RegisterErrorResponseSchema,
+]);
+export type RegisterResponse = z.infer<typeof RegisterResponseSchema>;

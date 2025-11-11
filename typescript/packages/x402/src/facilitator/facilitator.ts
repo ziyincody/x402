@@ -14,7 +14,7 @@ import {
   VerifyResponse,
   ExactEvmPayload,
 } from "../types/verify";
-import { Chain, Transport, Account } from "viem";
+import { Chain, Transport, Account, encodeFunctionData, parseAbi } from "viem";
 import { TransactionSigner } from "@solana/kit";
 
 /**
@@ -116,6 +116,38 @@ export async function settle<transport extends Transport, chain extends Chain>(
       ? (payload.payload as ExactEvmPayload).authorization.from
       : "",
   };
+}
+
+const identityRegistryAbi = parseAbi([
+  "function register() returns (uint256 agentId)",
+  "function register(string calldata tokenURI_) returns (uint256 agentId)",
+  "function register(string calldata tokenURI_, MetadataEntry[] calldata metadata) returns (uint256 agentId)",
+  "function agentExists(uint256 agentId) view returns (bool exists)",
+  "function balanceOf(address owner) view returns (uint256 balance)",
+  "event Registered(uint256 indexed agentId, string tokenURI, address indexed owner)",
+  "struct MetadataEntry { string key; bytes value; }",
+]);
+
+export async function register<transport extends Transport, chain extends Chain>(
+  network: Network,
+  tokenUri: String,
+  mode: String,
+): Promise<RegisterResponse> {
+  if (SupportedEVMNetworks.includes(network)) {
+    const callData = encodeFunctionData({
+      abi: identityRegistryAbi,
+      functionName: "register",
+      args: [tokenUri],
+    });
+
+    return {
+      success: true,
+      network,
+      mode: "prepare",
+      to: ERC8004_IDENTITY_REGISTRY_ADDRESS,
+      data: callData,
+    };
+  }
 }
 
 export type Supported = {

@@ -13,6 +13,7 @@ import { getPaywallHtml } from "x402/paywall";
 import {
   FacilitatorConfig,
   ERC20TokenAmount,
+  ExactEvmPayload,
   moneySchema,
   PaymentPayload,
   PaymentRequirements,
@@ -24,6 +25,7 @@ import {
   SupportedSVMNetworks,
 } from "x402/types";
 import { useFacilitator } from "x402/verify";
+import type { RegisterRequest } from "x402/types";
 
 /**
  * Creates a payment middleware factory for Express
@@ -78,7 +80,7 @@ export function paymentMiddleware(
   facilitator?: FacilitatorConfig,
   paywall?: PaywallConfig,
 ) {
-  const { verify, settle, supported } = useFacilitator(facilitator);
+  const { verify, settle, supported, register } = useFacilitator(facilitator);
   const x402Version = 1;
 
   // Pre-compile route patterns to regex and extract verbs
@@ -105,6 +107,7 @@ export function paymentMiddleware(
       customPaywallHtml,
       resource,
       discoverable,
+      erc8004Registration,
     } = config;
 
     const atomicAmountForAsset = processPriceToAtomicAmount(price, network);
@@ -325,6 +328,44 @@ export function paymentMiddleware(
           accepts: toJsonSafe(paymentRequirements),
         });
         return;
+      }
+
+      // Optional ERC-8004 agent registration (non-blocking)
+      if (erc8004Registration?.enabled) {
+        // Only register for EVM networks (ERC-8004 is EVM-only)
+        if (SupportedEVMNetworks.includes(selectedPaymentRequirements.network)) {
+          // Extract agent address (payee address - authorization.to)
+          const evmPayload = decodedPayment.payload as ExactEvmPayload;
+          const agentAddress = evmPayload.authorization?.to;
+
+          if (agentAddress) {
+            (async () => {
+              try {
+                const registerRequest: RegisterRequest = {
+                  network: selectedPaymentRequirements.network,
+                  tokenURI: erc8004Registration.tokenURI,
+                  metadata: erc8004Registration.metadata,
+                  mode: erc8004Registration.mode || "prepare",
+                };
+
+                await register(registerRequest);
+
+                // TODO: get prepared result then register by itself
+
+                console.log(`ERC-8004: Registration initiated for agent ${agentAddress}`);
+              } catch (error) {
+                // Log but don't fail the request
+                console.error("ERC-8004: Registration failed:", error);
+              }
+            })();
+          } else {
+            console.warn("ERC-8004: Cannot extract agent address from payment payload");
+          }
+        } else {
+          console.warn(
+            `ERC-8004: Registration skipped for non-EVM network: ${selectedPaymentRequirements.network}`,
+          );
+        }
       }
     } catch (error) {
       console.error(error);
