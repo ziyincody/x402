@@ -254,6 +254,8 @@ export const RegisterRequestSchema = z.object({
   tokenURI: z.string().optional(),
   metadata: z.array(MetadataEntrySchema).optional(),
   mode: z.enum(["self", "prepare"]).optional().default("self"),
+  agentId: z.string().optional(),
+  clientAddress: z.string().regex(EvmAddressRegex).optional(),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 
@@ -261,9 +263,10 @@ export type RegisterRequest = z.infer<typeof RegisterRequestSchema>;
 export const RegisterSelfResponseSchema = z.object({
   success: z.literal(true),
   network: NetworkSchema,
-  txHash: z.string(),
+  txHash: z.string().optional(),
   agentOwner: z.string().regex(EvmAddressRegex),
   agentId: z.string().optional(),
+  feedbackAuth: z.string().optional(),
 });
 export type RegisterSelfResponse = z.infer<typeof RegisterSelfResponseSchema>;
 

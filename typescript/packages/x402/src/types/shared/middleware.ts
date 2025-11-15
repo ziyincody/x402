@@ -38,6 +38,8 @@ export type PaymentMiddlewareConfig = {
     tokenURI?: string;
     metadata?: Array<{ key: string; value: string }>;
     mode?: "self" | "prepare";
+    feedback_enabled?: boolean;
+    agentId?: string;
   };
 };
 

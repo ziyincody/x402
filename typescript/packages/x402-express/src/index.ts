@@ -109,6 +109,10 @@ export function paymentMiddleware(
       discoverable,
       erc8004Registration,
     } = config;
+    // Type assertion for feedback_enabled and agentId properties (will be available after rebuild)
+    const feedbackEnabled = (erc8004Registration as { feedback_enabled?: boolean } | undefined)
+      ?.feedback_enabled;
+    const agentId = (erc8004Registration as { agentId?: string } | undefined)?.agentId;
 
     const atomicAmountForAsset = processPriceToAtomicAmount(price, network);
     if ("error" in atomicAmountForAsset) {
@@ -330,7 +334,7 @@ export function paymentMiddleware(
         return;
       }
 
-      // Optional ERC-8004 agent registration (non-blocking)
+      // Optional ERC-8004 agent registration
       if (erc8004Registration?.enabled) {
         // Only register for EVM networks (ERC-8004 is EVM-only)
         if (SupportedEVMNetworks.includes(selectedPaymentRequirements.network)) {
@@ -339,31 +343,101 @@ export function paymentMiddleware(
           const agentAddress = evmPayload.authorization?.to;
 
           if (agentAddress) {
-            (async () => {
-              try {
-                const registerRequest: RegisterRequest = {
-                  network: selectedPaymentRequirements.network,
-                  tokenURI: erc8004Registration.tokenURI,
-                  metadata: erc8004Registration.metadata,
-                  mode: erc8004Registration.mode || "prepare",
-                };
+            // Extract client address from payment payload (the payer)
+            const clientAddress = evmPayload.authorization?.from;
 
-                await register(registerRequest);
+            const registerRequest = {
+              network: selectedPaymentRequirements.network,
+              tokenURI: erc8004Registration.tokenURI,
+              metadata: erc8004Registration.metadata,
+              mode: erc8004Registration.mode || "prepare",
+              ...(agentId && { agentId }),
+              ...(clientAddress && feedbackEnabled && { clientAddress }),
+            } as RegisterRequest;
 
-                // TODO: get prepared result then register by itself
+            // If feedback_enabled is true, register synchronously and include agentId in response
+            if (feedbackEnabled) {
+              // feedback_enabled only works with "self" mode
+              if (registerRequest.mode !== "self") {
+                console.warn(
+                  "ERC-8004: feedback_enabled requires mode: 'self'. Registration skipped.",
+                );
+                res.setHeader(
+                  "X-AGENT-REGISTRATION-ERROR",
+                  "feedback_enabled requires mode: 'self'",
+                );
+              } else {
+                try {
+                  const registerResponse = await register(registerRequest);
 
-                console.log(`ERC-8004: Registration initiated for agent ${agentAddress}`);
-              } catch (error) {
-                // Log but don't fail the request
-                console.error("ERC-8004: Registration failed:", error);
+                  // Check if registration was successful and extract agentId and feedbackAuth
+                  if (registerResponse.success && "agentId" in registerResponse) {
+                    const agentId = registerResponse.agentId;
+                    if (agentId) {
+                      res.setHeader("X-AGENT-ID", agentId);
+                      console.log(
+                        `ERC-8004: Registration successful for agent ${agentAddress}, agentId: ${agentId}`,
+                      );
+
+                      // Include feedbackAuth in response header if available
+                      if (
+                        "feedbackAuth" in registerResponse &&
+                        registerResponse.feedbackAuth &&
+                        typeof registerResponse.feedbackAuth === "string"
+                      ) {
+                        res.setHeader("X-FEEDBACK-AUTH", registerResponse.feedbackAuth);
+                        console.log("ERC-8004: feedbackAuth included in response");
+                      }
+                    } else {
+                      console.warn("ERC-8004: Registration successful but agentId not returned");
+                      res.setHeader(
+                        "X-AGENT-REGISTRATION-ERROR",
+                        "Registration successful but agentId not available",
+                      );
+                    }
+                  } else {
+                    // Registration failed
+                    const errorMessage =
+                      "error" in registerResponse ? registerResponse.error : "Registration failed";
+                    console.error(
+                      `ERC-8004: Registration failed for agent ${agentAddress}:`,
+                      errorMessage,
+                    );
+                    res.setHeader("X-AGENT-REGISTRATION-ERROR", errorMessage);
+                  }
+                } catch (error) {
+                  // Registration threw an error
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  console.error("ERC-8004: Registration error:", error);
+                  res.setHeader("X-AGENT-REGISTRATION-ERROR", errorMessage);
+                }
               }
-            })();
+            } else {
+              // feedback_enabled is false or not set - register asynchronously (non-blocking)
+              (async () => {
+                try {
+                  await register(registerRequest);
+                  console.log(`ERC-8004: Registration initiated for agent ${agentAddress}`);
+                } catch (error) {
+                  // Log but don't fail the request
+                  console.error("ERC-8004: Registration failed:", error);
+                }
+              })();
+            }
           } else {
             console.warn("ERC-8004: Cannot extract agent address from payment payload");
+            res.setHeader(
+              "X-AGENT-REGISTRATION-ERROR",
+              "Cannot extract agent address from payment payload",
+            );
           }
         } else {
           console.warn(
             `ERC-8004: Registration skipped for non-EVM network: ${selectedPaymentRequirements.network}`,
+          );
+          res.setHeader(
+            "X-AGENT-REGISTRATION-ERROR",
+            `Registration skipped for non-EVM network: ${selectedPaymentRequirements.network}`,
           );
         }
       }

@@ -197,6 +197,8 @@ export function useFacilitator(facilitator?: FacilitatorConfig) {
         tokenURI: request.tokenURI,
         metadata: request.metadata,
         mode: request.mode || "self",
+        ...(request.agentId && { agentId: request.agentId }),
+        ...(request.clientAddress && { clientAddress: request.clientAddress }),
       }),
     });
 
